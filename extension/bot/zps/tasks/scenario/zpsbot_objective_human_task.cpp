@@ -88,7 +88,7 @@ TaskResult<CZPSBot> CZPSBotObjectiveHumanTask::GetObjectiveTask(CZPSBot* bot) co
 
 		if (entity)
 		{
-			// Ends the task if the objective changed while this task was paused (ie: the bot was collecting items).
+			// Ends the task if the objective changed while this task was paused (ie: the bot was collecting items). 
 			auto validator = [entity](CZPSBot* bot, CBaseEntity* buttonEntity) -> bool
 			{
 				const CZPSObjectiveManager& mgr = CZombiePanicSourceMod::GetZPSMod()->GetObjectiveManager();
