@@ -88,15 +88,7 @@ TaskResult<CZPSBot> CZPSBotObjectiveHumanTask::GetObjectiveTask(CZPSBot* bot) co
 
 		if (entity)
 		{
-			// Ends the task if the objective changed while this task was paused (ie: the bot was collecting items). 
-			auto validator = [entity](CZPSBot* bot, CBaseEntity* buttonEntity) -> bool
-			{
-				const CZPSObjectiveManager& mgr = CZombiePanicSourceMod::GetZPSMod()->GetObjectiveManager();
-				return mgr.GetCurrentObjective() == CZPSObjectiveManager::ObjectiveTypes::OBJECTIVE_USE_BUTTON &&
-					mgr.GetUseButton() == entity;
-			};
-
-			return PauseFor(new CBotSharedUseEntityTask<CZPSBot, CZPSBotPathCost>(entity, validator), "Completing UseButton objective!");
+			return PauseFor(new CZPSBotObjectiveUseButtonTask(entity), "Completing UseButton objective!");
 		}
 
 		break;

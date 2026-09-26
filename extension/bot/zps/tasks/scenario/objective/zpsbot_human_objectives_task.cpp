@@ -534,3 +534,227 @@ void CZPSBotObjectiveDropItemTask::EquipRequiredItem(CZPSBot* bot)
 		m_switchCooldown.Start(2.0f);
 	}
 }
+void CZPSBotObjectiveUseButtonTask::AddActiveBot(int client)
+{
+	if (!IsActiveBot(client))
+	{
+		s_activeBots.push_back(client);
+	}
+}
+
+void CZPSBotObjectiveUseButtonTask::RemoveActiveBot(int client)
+{
+	s_activeBots.erase(std::remove(s_activeBots.begin(), s_activeBots.end(), client), s_activeBots.end());
+}
+
+bool CZPSBotObjectiveUseButtonTask::IsActiveBot(int client)
+{
+	return std::find(s_activeBots.begin(), s_activeBots.end(), client) != s_activeBots.end();
+}
+
+TaskResult<CZPSBot> CZPSBotObjectiveUseButtonTask::OnTaskStart(CZPSBot* bot, AITask<CZPSBot>* pastTask)
+{
+	AddActiveBot(bot->GetIndex());
+	return Continue();
+}
+
+void CZPSBotObjectiveUseButtonTask::OnTaskEnd(CZPSBot* bot, AITask<CZPSBot>* nextTask)
+{
+	RemoveActiveBot(bot->GetIndex());
+}
+
+bool CZPSBotObjectiveUseButtonTask::OnTaskPause(CZPSBot* bot, AITask<CZPSBot>* nextTask)
+{
+	RemoveActiveBot(bot->GetIndex());
+	return true;
+}
+
+TaskResult<CZPSBot> CZPSBotObjectiveUseButtonTask::OnTaskResume(CZPSBot* bot, AITask<CZPSBot>* pastTask)
+{
+	AddActiveBot(bot->GetIndex());
+	return Continue();
+}
+
+bool CZPSBotObjectiveUseButtonTask::IsAnotherBotCloser(CZPSBot* bot, const Vector& buttonPos) const
+{
+	const float myRange = (buttonPos - bot->GetEyeOrigin()).Length();
+	const int myIndex = bot->GetIndex();
+	bool closer = false;
+
+	auto func = [&bot, &buttonPos, &myRange, &myIndex, &closer](CBaseBot* other) {
+		if (closer || other == bot)
+		{
+			return;
+		}
+
+		// only bots currently going for the button compete for it
+		if (!IsActiveBot(other->GetIndex()))
+		{
+			return;
+		}
+
+		if (!modhelpers->IsAlive(other->GetEntity()))
+		{
+			return;
+		}
+
+		if (static_cast<CZPSBot*>(other)->GetMyZPSTeam() != zps::ZPSTeam::ZPS_TEAM_SURVIVORS)
+		{
+			return;
+		}
+
+		const float otherRange = (buttonPos - other->GetEyeOrigin()).Length();
+
+		if (otherRange > COMPETE_RADIUS)
+		{
+			return;
+		}
+
+		// ties go to the lower client index
+		if (otherRange < myRange || (otherRange == myRange && other->GetIndex() < myIndex))
+		{
+			closer = true;
+		}
+	};
+
+	extmanager->ForEachBot(func);
+	return closer;
+}
+
+TaskResult<CZPSBot> CZPSBotObjectiveUseButtonTask::OnTaskUpdate(CZPSBot* bot)
+{
+	if (m_timeout.HasStarted() && m_timeout.IsElapsed())
+	{
+		return Done("Task timed out!");
+	}
+
+	if (bot->GetMovementInterface()->IsControllingMovements())
+	{
+		return Continue();
+	}
+
+	CBaseEntity* button = m_button.Get();
+
+	if (!button)
+	{
+		return Done("Button is NULL!");
+	}
+
+	// Ends the task if the objective changed while this task was paused (ie: the bot was collecting items).
+	const CZPSObjectiveManager& mgr = CZombiePanicSourceMod::GetZPSMod()->GetObjectiveManager();
+
+	if (mgr.GetCurrentObjective() != CZPSObjectiveManager::ObjectiveTypes::OBJECTIVE_USE_BUTTON || mgr.GetUseButton() != button)
+	{
+		return Done("Task is no longer valid!");
+	}
+
+	Vector eyePos = bot->GetEyeOrigin();
+	Vector buttonPos = UtilHelpers::getWorldSpaceCenter(button);
+	m_rangeToButton = (buttonPos - eyePos).Length();
+
+	// another survivor bot is nearer the button, hold position and let it press
+	if (m_rangeToButton <= COMPETE_RADIUS && IsAnotherBotCloser(bot, buttonPos))
+	{
+		m_waiting = true;
+		m_timeout.Invalidate();
+		bot->GetControlInterface()->AimAt(buttonPos, IPlayerController::LOOK_INTERESTING, 0.5f, "Waiting for teammate to use the button.");
+		return Continue();
+	}
+
+	m_waiting = false;
+
+	if (m_rangeToButton <= CBaseExtPlayer::PLAYER_USE_RADIUS)
+	{
+		Vector usePos;
+		UtilHelpers::math::CalcClosestPointOfEntity(button, eyePos, usePos);
+
+		IPlayerController* input = bot->GetControlInterface();
+		input->AimAt(buttonPos, IPlayerController::LOOK_PRIORITY, 0.5f, "Looking at USE entity!");
+		CBaseEntity* obstruction = nullptr;
+
+		if (!m_timeout.HasStarted())
+		{
+			m_timeout.Start(5.0f);
+		}
+
+		if (input->IsAimOnTarget() && !modhelpers->IsUseObstructed(bot->GetEntity(), button, &obstruction, &usePos))
+		{
+			input->PressUseButton();
+			return Done("Use button pressed!");
+		}
+
+		if (obstruction)
+		{
+			if (bot->IsDebugging(BOTDEBUG_TASKS))
+			{
+				bot->DebugPrintToConsole(255, 255, 0, "%s OBJECTIVE USE BUTTON: +USE IS OBSTRUCTED BY \"%s\"! \n",
+					bot->GetDebugIdentifier(), UtilHelpers::textformat::FormatEntity(obstruction));
+			}
+
+			if (bot->IsAbleToBreak(obstruction))
+			{
+				m_timeout.Invalidate();
+				bot->GetMovementInterface()->BreakObstacle(obstruction);
+				return Continue();
+			}
+		}
+	}
+
+	if (m_nav.NeedsRepath())
+	{
+		CZPSBotPathCost cost(bot);
+
+		if (!m_nav.ComputePathToPosition(bot, buttonPos, cost))
+		{
+			if (m_counter.Increase())
+			{
+				return Done("Too many pathing failures!");
+			}
+		}
+	}
+
+	m_nav.Update(bot);
+	return Continue();
+}
+
+TaskEventResponseResult<CZPSBot> CZPSBotObjectiveUseButtonTask::OnStuck(CZPSBot* bot)
+{
+	m_nav.Invalidate();
+
+	if (m_counter.Increase())
+	{
+		return TryDone(PRIORITY_CRITICAL, "Too many pathing failures!");
+	}
+
+	return TryToMaintain(PRIORITY_MEDIUM);
+}
+
+TaskEventResponseResult<CZPSBot> CZPSBotObjectiveUseButtonTask::OnMoveToFailure(CZPSBot* bot, CPath* path, IEventListener::MovementFailureType reason)
+{
+	if (m_counter.Increase())
+	{
+		return TryDone(PRIORITY_CRITICAL, "Too many pathing failures!");
+	}
+
+	return TryToMaintain(PRIORITY_MEDIUM);
+}
+
+QueryAnswerType CZPSBotObjectiveUseButtonTask::ShouldAttack(CBaseBot* me, const CKnownEntity* them)
+{
+	if (!m_waiting && m_rangeToButton <= COMPETE_RADIUS)
+	{
+		return ANSWER_NO;
+	}
+
+	return ANSWER_UNDEFINED;
+}
+
+QueryAnswerType CZPSBotObjectiveUseButtonTask::ShouldHurry(CBaseBot* me)
+{
+	if (!m_waiting && m_rangeToButton <= COMPETE_RADIUS)
+	{
+		return ANSWER_YES;
+	}
+
+	return ANSWER_UNDEFINED;
+}
