@@ -71,7 +71,7 @@ namespace natives::navarea::offmesh
 		return pawnutils::ReturnFloat(conn->GetConnectionLength());
 	}
 
-	void setup(std::vector<sp_nativeinfo_t>& nv)
+	static void setup(std::vector<sp_nativeinfo_t>& nv)
 	{
 		sp_nativeinfo_t list[] = {
 			{"NavBotNavOffMeshConnection.GetType", GetType},
@@ -468,7 +468,6 @@ namespace natives::navarea
 			return pawnutils::ReturnBool(false);
 		}
 
-		TheNavMesh->NotifyDangerousEditCommandWasUsed(); // kick bots
 		from->ConnectTo(to, dir);
 		return pawnutils::ReturnBool(true);
 	}
@@ -490,7 +489,6 @@ namespace natives::navarea
 			return 0;
 		}
 
-		TheNavMesh->NotifyDangerousEditCommandWasUsed(); // kick bots
 		from->Disconnect(to);
 		return 0;
 	}
@@ -566,34 +564,480 @@ namespace natives::navarea
 
 		return pawnutils::ReturnBool(area->IsOverlapping(pos, tolerance));
 	}
+	static cell_t IsContiguous(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area (first)!");
+			return 0;
+		}
+
+		CNavArea* other = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 2);
+
+		if (!other)
+		{
+			context->ReportError("NULL nav area (second)!");
+			return 0;
+		}
+
+		return pawnutils::ReturnBool(area->IsContiguous(other));
+	}
+	static cell_t GetDanger(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		int teamindex = static_cast<int>(params[2]);
+
+		// Throw an error if an invalid team is passed to alert plugin coders since they can't tell if the team is invalid just by the return value alone.
+		if (teamindex < 0 || teamindex >= static_cast<int>(NAV_TEAMS_ARRAY_SIZE))
+		{
+			context->ReportError("Team index %i is out of bounds! Should be between 0 and %u.", teamindex, NAV_TEAMS_ARRAY_SIZE - 1U);
+			return 0;
+		}
+
+		return pawnutils::ReturnFloat(area->GetDanger(teamindex));
+	}
+	static cell_t IncreaseDanger(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		int teamindex = static_cast<int>(params[2]);
+		float amount = pawnutils::ReadFloat(params, 3);
+		area->IncreaseDanger(teamindex, amount);
+		return 0;
+	}
+	static cell_t ClearDanger(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		int teamindex = static_cast<int>(params[2]);
+		area->ClearDanger(teamindex);
+		return 0;
+	}
+	static cell_t GetSizeX(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		return pawnutils::ReturnFloat(area->GetSizeX());
+	}
+	static cell_t GetSizeY(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		return pawnutils::ReturnFloat(area->GetSizeY());
+	}
+	static cell_t GetRandomPoint(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		Vector point = area->GetRandomPoint();
+		pawnutils::WriteVector(context, params, 2, point);
+		return 0;
+	}
+	static cell_t GetDistanceSquaredToPoint(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		Vector point = pawnutils::ReadVector(context, params, 2);
+		return pawnutils::ReturnFloat(area->GetDistanceSquaredToPoint(point));
+	}
+	static cell_t GetCostSoFar(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (!area)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		return pawnutils::ReturnFloat(area->GetCostSoFar());
+	}
+	static cell_t ComputeLargestPortal(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* first = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+		CNavArea* second = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 2);
+
+		if (first == nullptr || second == nullptr)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		Vector center(0.0f, 0.0f, 0.0f);
+		float halfWidth = 0.0f;
+		NavDirType dir = first->ComputeLargestPortal(second, &center, &halfWidth);
+		pawnutils::WriteVector(context, params, 3, center);
+		pawnutils::WriteFloatByRef(context, params, 4, halfWidth);
+		return static_cast<cell_t>(dir);
+	}
+	static cell_t ComputePortal(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* first = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+		CNavArea* second = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 2);
+
+		if (first == nullptr || second == nullptr)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		Vector center(0.0f, 0.0f, 0.0f);
+		float halfWidth = 0.0f;
+		NavDirType dir = static_cast<NavDirType>(params[3]);
+		first->ComputePortal(second, dir, &center, &halfWidth);
+		pawnutils::WriteVector(context, params, 4, center);
+		pawnutils::WriteFloatByRef(context, params, 5, halfWidth);
+		return 0;
+	}
+	static cell_t ComputeClosestPointInPortal(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* first = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+		CNavArea* second = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 2);
+
+		if (first == nullptr || second == nullptr)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		NavDirType dir = static_cast<NavDirType>(params[3]);
+		Vector fromPos = pawnutils::ReadVector(context, params, 4);
+		Vector close(0.0f, 0.0f, 0.0f);
+		first->ComputeClosestPointInPortal(second, dir, fromPos, &close);
+		pawnutils::WriteVector(context, params, 5, close);
+		return 0;
+	}
+	static cell_t IsEdge(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (area == nullptr)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		NavDirType dir = static_cast<NavDirType>(params[2]);
+		return pawnutils::ReturnBool(area->IsEdge(dir));
+	}
+	static cell_t ComputeNormal(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (area == nullptr)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		bool alternate = params[3] != 0;
+		Vector normal(0.0f, 0.0f, 0.0f);
+		area->ComputeNormal(&normal, alternate);
+		pawnutils::WriteVector(context, params, 2, normal);
+		return 0;
+	}
+	static cell_t SearchConnectedAreas(IPluginContext* context, const cell_t* params)
+	{
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, 1);
+
+		if (area == nullptr)
+		{
+			context->ReportError("NULL nav area!");
+			return 0;
+		}
+
+		SourcePawn::IPluginFunction* callback = nullptr;
+		if (!pawnutils::ReadFunctionByID(context, params, 2, &callback))
+		{
+			return 0;
+		}
+
+		cell_t data = params[3];
+		DetectExceptions eh(context);
+		
+		auto func = [&callback, &eh, &area, &data](CNavArea* neighborArea, NavTraverseType how) {
+			if (eh.HasException())
+			{
+				return false;
+			}
+
+			cell_t result = 0;
+
+#if SMINTERFACE_EXTENSIONAPI_VERSION >= 9
+			sp::CallArgs args;
+			pawnutils::PushPtrToCall(&args, area);
+			pawnutils::PushPtrToCall(&args, neighborArea);
+			args.PushCell(static_cast<cell_t>(how));
+			args.PushCell(data);
+			callback->Invoke(args, &result);
+#else
+			pawnutils::PushPtrToCall(callback, area);
+			pawnutils::PushPtrToCall(callback, neighborArea);
+			callback->PushCell(static_cast<cell_t>(how));
+			callback->PushCell(data);
+			callback->Invoke(&result);
+#endif // SMINTERFACE_EXTENSIONAPI_VERSION >= 9
+
+			return result != 0;
+		};
+
+		bool result = area->SearchConnectedAreas(func);
+		return pawnutils::ReturnBool(result);
+	}
+	static cell_t GetOffMeshConnectionToArea(IPluginContext* context, const cell_t* params)
+	{
+		std::size_t firstparam = pawnutils::GetIndexOfParam(context, 1);
+		CNavArea* from = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam);
+		CNavArea* to = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam + 1);
+
+		if (from == nullptr || to == nullptr)
+		{
+			context->ReportError("NULL nav area !");
+			return 0;
+		}
+
+		const NavOffMeshConnection* conn = from->GetOffMeshConnectionToArea(to);
+		return pawnutils::ReturnPointerToPawn(context, params, conn);
+	}
+	static cell_t GetLadderConnectionToArea(IPluginContext* context, const cell_t* params)
+	{
+		std::size_t firstparam = pawnutils::GetIndexOfParam(context, 1);
+		CNavArea* from = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam);
+		CNavArea* to = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam + 1);
+
+		if (from == nullptr || to == nullptr)
+		{
+			context->ReportError("NULL nav area !");
+			return 0;
+		}
+
+		const CNavLadder* ladder = from->GetLadderConnectionToArea(to);
+		return pawnutils::ReturnPointerToPawn(context, params, ladder);
+	}
+	static cell_t GetElevatorConnectionToArea(IPluginContext* context, const cell_t* params)
+	{
+		std::size_t firstparam = pawnutils::GetIndexOfParam(context, 1);
+		CNavArea* from = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam);
+		CNavArea* to = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam + 1);
+
+		if (from == nullptr || to == nullptr)
+		{
+			context->ReportError("NULL nav area !");
+			return 0;
+		}
+
+		const CNavElevator* elev = from->GetElevatorConnectionToArea(to);
+		return pawnutils::ReturnPointerToPawn(context, params, elev);
+	}
+	static cell_t ConnectToOffMesh(IPluginContext* context, const cell_t* params)
+	{
+		constexpr std::size_t firstparam = 1U;
+		CNavArea* from = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam);
+		CNavArea* to = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam + 1);
+
+		if (from == nullptr || to == nullptr)
+		{
+			context->ReportError("NULL nav area !");
+			return 0;
+		}
+
+		OffMeshConnectionType type = static_cast<OffMeshConnectionType>(params[firstparam + 2]);
+
+		if (type <= OffMeshConnectionType::OFFMESH_INVALID || type >= OffMeshConnectionType::MAX_OFFMESH_CONNECTION_TYPES)
+		{
+			context->ReportError("%i is not a valid off-mesh connection type!", params[firstparam + 2]);
+			return 0;
+		}
+
+		Vector start = pawnutils::ReadVector(context, params, firstparam + 3);
+		Vector end = pawnutils::ReadVector(context, params, firstparam + 4);
+		return pawnutils::ReturnBool(from->ConnectTo(to, type, start, end));
+	}
+	static cell_t DisconnectOffMesh(IPluginContext* context, const cell_t* params)
+	{
+		constexpr std::size_t firstparam = 1U;
+		CNavArea* from = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam);
+		CNavArea* to = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam + 1);
+
+		if (from == nullptr || to == nullptr)
+		{
+			context->ReportError("NULL nav area !");
+			return 0;
+		}
+
+		OffMeshConnectionType type = static_cast<OffMeshConnectionType>(params[firstparam + 2]);
+
+		if (type <= OffMeshConnectionType::OFFMESH_INVALID || type >= OffMeshConnectionType::MAX_OFFMESH_CONNECTION_TYPES)
+		{
+			context->ReportError("%i is not a valid off-mesh connection type!", params[firstparam + 2]);
+			return 0;
+		}
+
+		from->Disconnect(to, type);
+		return 0;
+	}
+	static cell_t GetIncomingConnectionsCount(IPluginContext* context, const cell_t* params)
+	{
+		constexpr std::size_t firstparam = 1U;
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam);
+
+		if (area == nullptr)
+		{
+			context->ReportError("NULL nav area !");
+			return 0;
+		}
+
+		NavDirType dir = static_cast<NavDirType>(params[firstparam + 1]);
+
+		if (dir < NavDirType::NORTH || dir >= NavDirType::NUM_DIRECTIONS)
+		{
+			context->ReportError("%i is not a valid direction!", params[firstparam + 1]);
+			return 0;
+		}
+
+		return static_cast<cell_t>(area->GetIncomingConnections(dir)->Count());
+	}
+	static cell_t GetIncomingConnection(IPluginContext* context, const cell_t* params)
+	{
+		std::size_t firstparam = pawnutils::GetIndexOfParam(context, 1);
+		CNavArea* area = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam);
+
+		if (area == nullptr)
+		{
+			context->ReportError("NULL nav area !");
+			return 0;
+		}
+
+		NavDirType dir = static_cast<NavDirType>(params[firstparam + 1]);
+
+		if (dir < NavDirType::NORTH || dir >= NavDirType::NUM_DIRECTIONS)
+		{
+			context->ReportError("%i is not a valid direction!", params[firstparam + 1]);
+			return 0;
+		}
+
+		int idx = params[firstparam + 2];
+		const NavConnectVector* vec = area->GetIncomingConnections(dir);
+
+		if (idx < 0 || idx >= vec->Count())
+		{
+			context->ReportError("Index %i is out of bounds! Range: 0 - %i", idx, vec->Count() - 1);
+			return 0;
+		}
+
+		auto& conn = (*vec)[idx];
+		return pawnutils::ReturnPointerToPawn(context, params, conn.area);
+	}
+	static cell_t ComputeGroundHeightChange(IPluginContext* context, const cell_t* params)
+	{
+		constexpr std::size_t firstparam = 1U;
+		CNavArea* from = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam);
+		CNavArea* to = pawnutils::UnsafeCastPawnAddressToObject<CNavArea>(context, params, firstparam + 1);
+
+		if (from == nullptr || to == nullptr)
+		{
+			context->ReportError("NULL nav area !");
+			return 0;
+		}
+
+		return pawnutils::ReturnFloat(from->ComputeGroundHeightChange(to));
+	}
 
 	void setup(std::vector<sp_nativeinfo_t>& nv)
 	{
 		sp_nativeinfo_t list[] = {
-			{"NavBotNavArea.GetID", Native_NavAreaGetID},
-			{"NavBotNavArea.GetCenter", Native_NavAreaGetCenter},
-			{"NavBotNavArea.GetCorner", Native_NavAreaGetCorner},
-			{"NavBotNavArea.GetExtent", Native_NavAreaGetExtent},
-			{"NavBotNavArea.IsVisible", Native_NavAreaIsVisible},
-			{"NavBotNavArea.IsBlocked", Native_NavAreaIsBlocked},
-			{"NavBotNavArea.GetClosestPointOnArea", Native_NavAreaGetClosestPointOnArea},
-			{"NavBotNavArea.IsConnectedToAny", IsConnectedToAny},
-			{"NavBotNavArea.IsConnectedToDir", IsConnectedToDir},
-			{"NavBotNavArea.IsConnectedToOffMesh", IsConnectedToOffMesh},
-			{"NavBotNavArea.GetOffMeshConnectionCount", GetOffMeshConnectionCount},
-			{"NavBotNavArea.GetOffMeshConnection", GetOffMeshConnection},
-			{"NavBotNavArea.CollectConnectedAreas", CollectConnectedAreas},
-			{"NavBotNavArea.ComputeAdjacentConnectionHeightChange", ComputeAdjacentConnectionHeightChange},
-			{"NavBotNavArea.ComputeAdjacentConnectionGapDistance", ComputeAdjacentConnectionGapDistance},
-			{"NavBotNavArea.GetAdjacentAreaCount", GetAdjacentAreaCount},
-			{"NavBotNavArea.GetAdjacentArea", GetAdjacentArea},
-			{"NavBotNavArea.ConnectToAdjacent", ConnectToAdjacent},
-			{"NavBotNavArea.DisconnectFromAdjacent", DisconnectFromAdjacent},
-			{"NavBotNavArea.GetPlaceName", GetPlaceName},
-			{"NavBotNavArea.IsUnderwater", IsUnderwater},
-			{"NavBotNavArea.IsInShallowWater", IsInShallowWater},
-			{"NavBotNavArea.IsInWater", IsInWater},
-			{"NavBotNavArea.IsOverlappingPos", IsOverlappingPos},
+			{ "NavBotNavArea.GetID", Native_NavAreaGetID },
+			{ "NavBotNavArea.GetCenter", Native_NavAreaGetCenter },
+			{ "NavBotNavArea.GetCorner", Native_NavAreaGetCorner },
+			{ "NavBotNavArea.GetExtent", Native_NavAreaGetExtent },
+			{ "NavBotNavArea.IsVisible", Native_NavAreaIsVisible },
+			{ "NavBotNavArea.IsBlocked", Native_NavAreaIsBlocked },
+			{ "NavBotNavArea.GetClosestPointOnArea", Native_NavAreaGetClosestPointOnArea },
+			{ "NavBotNavArea.IsConnectedToAny", IsConnectedToAny },
+			{ "NavBotNavArea.IsConnectedToDir", IsConnectedToDir },
+			{ "NavBotNavArea.IsConnectedToOffMesh", IsConnectedToOffMesh },
+			{ "NavBotNavArea.GetOffMeshConnectionCount", GetOffMeshConnectionCount },
+			{ "NavBotNavArea.GetOffMeshConnection", GetOffMeshConnection },
+			{ "NavBotNavArea.CollectConnectedAreas", CollectConnectedAreas },
+			{ "NavBotNavArea.ComputeAdjacentConnectionHeightChange", ComputeAdjacentConnectionHeightChange },
+			{ "NavBotNavArea.ComputeAdjacentConnectionGapDistance", ComputeAdjacentConnectionGapDistance },
+			{ "NavBotNavArea.GetAdjacentAreaCount", GetAdjacentAreaCount },
+			{ "NavBotNavArea.GetAdjacentArea", GetAdjacentArea },
+			{ "NavBotNavArea.ConnectToAdjacent", ConnectToAdjacent },
+			{ "NavBotNavArea.DisconnectFromAdjacent", DisconnectFromAdjacent },
+			{ "NavBotNavArea.GetPlaceName", GetPlaceName },
+			{ "NavBotNavArea.IsUnderwater", IsUnderwater },
+			{ "NavBotNavArea.IsInShallowWater", IsInShallowWater },
+			{ "NavBotNavArea.IsInWater", IsInWater },
+			{ "NavBotNavArea.IsOverlappingPos", IsOverlappingPos },
+			{ "NavBotNavArea.IsContiguous", IsContiguous },
+			{ "NavBotNavArea.GetDanger", GetDanger },
+			{ "NavBotNavArea.IncreaseDanger", IncreaseDanger },
+			{ "NavBotNavArea.ClearDanger", ClearDanger },
+			{ "NavBotNavArea.GetSizeX", GetSizeX },
+			{ "NavBotNavArea.GetSizeY", GetSizeY },
+			{ "NavBotNavArea.GetRandomPoint", GetRandomPoint },
+			{ "NavBotNavArea.GetDistanceSquaredToPoint", GetDistanceSquaredToPoint },
+			{ "NavBotNavArea.GetCostSoFar", GetCostSoFar },
+			{ "NavBotNavArea.ComputeLargestPortal", ComputeLargestPortal },
+			{ "NavBotNavArea.ComputePortal", ComputePortal },
+			{ "NavBotNavArea.ComputeClosestPointInPortal", ComputeClosestPointInPortal },
+			{ "NavBotNavArea.IsEdge", IsEdge },
+			{ "NavBotNavArea.ComputeNormal", ComputeNormal },
+			{ "NavBotNavArea.SearchConnectedAreas", SearchConnectedAreas },
+			{ "NavBotNavArea.GetOffMeshConnectionToArea", GetOffMeshConnectionToArea },
+			{ "NavBotNavArea.GetLadderConnectionToArea", GetLadderConnectionToArea },
+			{ "NavBotNavArea.GetElevatorConnectionToArea", GetElevatorConnectionToArea },
+			{ "NavBotNavArea.ConnectToOffMesh", ConnectToOffMesh },
+			{ "NavBotNavArea.DisconnectOffMesh", DisconnectOffMesh },
+			{ "NavBotNavArea.GetIncomingConnectionsCount", GetIncomingConnectionsCount },
+			{ "NavBotNavArea.GetIncomingConnection", GetIncomingConnection },
+			{ "NavBotNavArea.ComputeGroundHeightChange", ComputeGroundHeightChange },
 		};
 
 		nv.insert(nv.end(), std::begin(list), std::end(list));

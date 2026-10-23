@@ -57,8 +57,6 @@ template < typename Functor >
 bool ForEachActor( Functor &func );
 */
 
-bool UTIL_IsCommandIssuedByServerAdmin();
-
 const char *UTIL_VarArgs( const char *format, ... );
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -171,7 +169,7 @@ private:
 	static inline unsigned int m_nextID{ 1 };							// used when allocating spot ID's
 	static inline unsigned int m_masterMarker{ 1 };						// used to mark spots
 };
-typedef CUtlVector< HidingSpot * > HidingSpotVector;
+typedef std::vector<HidingSpot*> HidingSpotVector;
 
 
 //--------------------------------------------------------------------------------------------------------------
@@ -362,7 +360,7 @@ public:
 
 	void ConnectTo( CNavArea *area, NavDirType dir );			// connect this area to given area in given direction
 	void Disconnect( CNavArea *area );							// disconnect this area from given area
-
+	void ConnectToBidirectional(CNavArea* area, NavDirType dir); // connect this area to the given area in the given direction, creates a bi-directional connection
 	void ConnectTo( CNavLadder *ladder );						// connect this area to given ladder
 	void Disconnect( CNavLadder *ladder );						// disconnect this area from given ladder
 
@@ -556,6 +554,33 @@ public:
 			return true;
 		}
 
+		if (GetLadderConnectionToArea(other) != nullptr)
+		{
+			return true;
+		}
+
+		if (GetElevatorConnectionToArea(other) != nullptr)
+		{
+			return true;
+		}
+
+		return false;
+	}
+	/**
+	 * @brief Checks if this area has any ground connections (no elevator, ladders or offmesh links).
+	 * @param other Area to check.
+	 * @return True if connected by ground, false otherwise.
+	 */
+	bool HasAnyGroundConnectionsTo(const CNavArea* other) const
+	{
+		for (int dir = static_cast<int>(NORTH); dir < static_cast<int>(NUM_DIRECTIONS); dir++)
+		{
+			if (IsConnected(other, static_cast<NavDirType>(dir)))
+			{
+				return true;
+			}
+		}
+
 		return false;
 	}
 
@@ -605,7 +630,7 @@ public:
 	NavDirType ComputeDirection( Vector *point ) const;			// return direction from this area to the given point
 
 	//- hiding spots ------------------------------------------------------------------------------------
-	const HidingSpotVector *GetHidingSpots( void ) const	{ return &m_hidingSpots; }
+	const HidingSpotVector& GetHidingSpots( void ) const	{ return m_hidingSpots; }
 	const HidingSpot* GetRandomHidingSpot() const;
 
 	/* Danger */
@@ -621,10 +646,8 @@ public:
 		{
 			return 0.0f;
 		}
-		else
-		{
-			return m_danger[teamID];
-		}
+		
+		return m_danger[teamID];
 	}
 
 	/* Common danger amounts */
@@ -638,7 +661,6 @@ public:
 	/**
 	 * @brief Increases the danger amount for this area.
 	 * @param teamID Team to increase for. NAV_TEAM_ANY for all teams.
-	 * @param max Increase danger up to this to avoid excessive danger values.
 	 * @param amount Amount to increase.
 	 */
 	inline void IncreaseDanger(int teamID, const float amount)
@@ -772,6 +794,8 @@ public:
 	virtual void ComputeEarliestOccupyTimes( void );
 	virtual void CustomAnalysis( bool isIncremental = false ) { }	// for game-specific analysis
 	virtual bool ComputeLighting( void );						// compute 0..1 light intensity at corners and center (requires client via listenserver)
+	// Analysis post area creation.
+	virtual void PostAreasCreationAnalysis(const bool isIncremental = false);
 	bool TestStairs( void );									// Test an area for being on stairs
 	virtual bool IsAbleToMergeWith( CNavArea *other ) const;
 
@@ -831,14 +855,12 @@ public:
 		{
 			return nullptr;
 		}
-		else
+
+		for (auto& floor : m_elevator->GetFloors())
 		{
-			for (auto& floor : m_elevator->GetFloors())
+			if (floor.GetArea() == other)
 			{
-				if (floor.GetArea() == other)
-				{
-					return m_elevator;
-				}
+				return m_elevator;
 			}
 		}
 
@@ -970,6 +992,104 @@ public:
 				}
 			}
 		}
+	}
+
+	/**
+	 * @brief Searches connected areas. This is similar to ForEachConnectedArea but includes the traverse method to reach the neighbor area.
+	 * @tparam T A functor with the following signature: bool (CNavArea* neighborArea, NavTraverseType how). Returning false stops the search and returns false.
+	 * @param func Functor to run.
+	 * @return Returns false if the functor returned false else returns true.
+	 */
+	template <typename T>
+	inline bool SearchConnectedAreas(T& func)
+	{
+		for (int dir = 0; dir < static_cast<int>(NUM_DIRECTIONS); dir++)
+		{
+			auto conn = GetAdjacentAreas(static_cast<NavDirType>(dir));
+
+			for (int i = 0; i < conn->Count(); i++)
+			{
+				CNavArea* connectedArea = conn->Element(i).area;
+				if (func(connectedArea, static_cast<NavTraverseType>(dir)) == false)
+				{
+					return false;
+				}
+			}
+		}
+
+		auto laddersup = GetLadders(CNavLadder::LADDER_UP);
+
+		if (laddersup)
+		{
+			for (int i = 0; i < laddersup->Count(); i++)
+			{
+				auto& conn = laddersup->Element(i);
+
+				for (auto& lc : conn.ladder->GetConnections())
+				{
+					if (lc.IsConnectedToLadderTop())
+					{
+						if (func(lc.GetConnectedArea(), NavTraverseType::GO_LADDER_UP) == false)
+						{
+							return false;
+						}
+					}
+				}
+			}
+		}
+
+		auto laddersdown = GetLadders(CNavLadder::LADDER_DOWN);
+
+		if (laddersdown)
+		{
+			for (int i = 0; i < laddersdown->Count(); i++)
+			{
+				auto& conn = laddersdown->Element(i);
+
+				for (auto& lc : conn.ladder->GetConnections())
+				{
+					if (lc.IsConnectedToLadderBottom())
+					{
+						if (func(lc.GetConnectedArea(), NavTraverseType::GO_LADDER_DOWN) == false)
+						{
+							return false;
+						}
+					}
+				}
+			}
+		}
+
+		for (auto& link : m_offmeshconnections)
+		{
+			CNavArea* connectedArea = link.m_link.area;
+			
+			if (func(connectedArea, NavTraverseType::GO_OFF_MESH_CONNECTION) == false)
+			{
+				return false;
+			}
+		}
+
+		if (m_elevator != nullptr)
+		{
+			auto& floors = m_elevator->GetFloors();
+
+			for (auto& floor : floors)
+			{
+				CNavArea* connectedArea = floor.GetArea();
+
+				NavTraverseType how = (connectedArea->GetCenter().z > this->GetCenter().z) ? NavTraverseType::GO_ELEVATOR_UP : NavTraverseType::GO_ELEVATOR_DOWN;
+
+				if (connectedArea != this)
+				{
+					if (func(connectedArea, how) == false)
+					{
+						return false;
+					}
+				}
+			}
+		}
+
+		return true;
 	}
 
 protected:

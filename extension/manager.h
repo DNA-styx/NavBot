@@ -4,7 +4,6 @@
 
 #include <cstdint>
 #include <bot/bot_debug_shared.h>
-#include <bot/interfaces/profile.h>
 #include <bot/basebot.h>
 #include <mods/gamemods_shared.h>
 #include <sdkports/sdk_timers.h>
@@ -103,7 +102,6 @@ public:
 	 * @param newbotedict Optional pointer to get the edict of the bot added.
 	 */
 	void AddBot(std::string* newbotname = nullptr, edict_t** newbotedict = nullptr);
-	CBaseBot* AttachBotInstanceToEntity(edict_t* entity);
 	/**
 	 * @brief Removes a random bot from the game.
 	 * @param message Kick reason message.
@@ -169,6 +167,152 @@ public:
 		}
 	}
 	
+	/**
+	 * @brief Queries the number of bots completing a specific objective.
+	 * @tparam I Objective ID type, must be integral
+	 * @param me Bot asking the query.
+	 * @param objID Objective ID, each mod defines their own IDs.
+	 * @return Number of bots doing that objective.
+	 */
+	template <typename I>
+	int QueryNumberOfBotsCompletingObjective(CBaseBot* me, I objID)
+	{
+		static_assert(std::is_integral_v<I>);
+		ISensor* sensor = me->GetSensorInterface();
+		int n = 0;
+		std::any emptyany;
+
+		for (auto& ptr : m_bots)
+		{
+			CBaseBot* bot = ptr.get();
+
+			if (bot == me)
+			{
+				continue;
+			}
+
+			// only query alive teammates
+			if (!bot->IsAlive())
+			{
+				continue;
+			}
+
+			// only query teammates
+			if (!sensor->IsFriendly(bot->GetEntity()))
+			{
+				continue;
+			}
+
+			if (bot->GetBehaviorInterface()->IsCompletingObjective(bot, static_cast<int>(objID), emptyany) == QueryAnswerType::ANSWER_YES)
+			{
+				n++;
+			}
+		}
+
+		return n;
+	}
+	/**
+	 * @brief Queries the number of bots completing a specific objective.
+	 * @tparam I Objective ID type, must be integral
+	 * @tparam DT Objective data type.
+	 * @param me Bot asking the query.
+	 * @param objID Objective ID, each mod defines their own IDs.
+	 * @param data Data to pass to the query. Must be copy constructible.
+	 * @return Number of bots doing that objective.
+	 */
+	template <typename I, typename DT>
+	int QueryNumberOfBotsCompletingObjective(CBaseBot* me, I objID, DT data)
+	{
+		static_assert(std::is_integral_v<I>);
+		static_assert(std::is_copy_constructible_v<DT>);
+		ISensor* sensor = me->GetSensorInterface();
+		int n = 0;
+		std::any any = data;
+
+		for (auto& ptr : m_bots)
+		{
+			CBaseBot* bot = ptr.get();
+
+			if (bot == me)
+			{
+				continue;
+			}
+
+			// only query alive teammates
+			if (!bot->IsAlive())
+			{
+				continue;
+			}
+
+			// only query teammates
+			if (!sensor->IsFriendly(bot->GetEntity()))
+			{
+				continue;
+			}
+
+			if (bot->GetBehaviorInterface()->IsCompletingObjective(bot, static_cast<int>(objID), any) == QueryAnswerType::ANSWER_YES)
+			{
+				n++;
+			}
+		}
+
+		return n;
+	}
+	/**
+	 * @brief Queries the number of bots completing a specific objective.
+	 * @tparam I Objective ID type, must be integral
+	 * @tparam DT Objective data type.
+	 * @tparam F Filter function. bool (CBaseBot* bot)
+	 * @param me Bot asking the query.
+	 * @param objID Objective ID, each mod defines their own IDs.
+	 * @param data Data to pass to the query. Must be copy constructible.
+	 * @param filter Filter function called on each bot, if the filter returns false, the bot is skipped.
+	 * @return Number of bots doing that objective.
+	 */
+	template <typename I, typename DT, typename F>
+	int QueryNumberOfBotsCompletingObjective(CBaseBot* me, I objID, DT data, F filter)
+	{
+		static_assert(std::is_integral_v<I>);
+		static_assert(std::is_copy_constructible_v<DT>);
+		ISensor* sensor = me->GetSensorInterface();
+		int n = 0;
+		std::any any = data;
+
+		for (auto& ptr : m_bots)
+		{
+			CBaseBot* bot = ptr.get();
+
+			if (bot == me)
+			{
+				continue;
+			}
+
+			// only query alive teammates
+			if (!bot->IsAlive())
+			{
+				continue;
+			}
+
+			// only query teammates
+			if (!sensor->IsFriendly(bot->GetEntity()))
+			{
+				continue;
+			}
+
+			if (filter(bot) == false)
+			{
+				continue;
+			}
+
+			if (bot->GetBehaviorInterface()->IsCompletingObjective(bot, static_cast<int>(objID), any) == QueryAnswerType::ANSWER_YES)
+			{
+				n++;
+			}
+		}
+
+		return n;
+	}
+
 	// Gets the value of sv_gravity cached at map start
 	static const float GetSvGravityValue() { return CExtManager::s_sv_gravity; }
 
@@ -215,6 +359,13 @@ public:
 			m_onnavmeshdestroyedforward->Execute(nullptr);
 		}
 	}
+	void SMAPI_OnNavMeshSeeding()
+	{
+		if (m_onnavmeshseedingforward->GetFunctionCount() > 0)
+		{
+			m_onnavmeshseedingforward->Execute(nullptr);
+		}
+	}
 	void SMAPI_OnBotStuck(int bot, int count)
 	{
 		if (m_onbotstuckforward->GetFunctionCount() > 0)
@@ -243,11 +394,10 @@ private:
 #ifndef NO_SOURCEPAWN_API
 	SourceMod::IForward* m_prebotaddforward; // SM Forward, on pre bot add
 	SourceMod::IForward* m_postbotaddforward; // SM Forward, post bot add (normal bots)
-	SourceMod::IForward* m_prepluginbotaddforward; // SM Forward, on pre plugin bot add
-	SourceMod::IForward* m_postpluginbotaddforward; // SM Forward, post bot add (plugin bots)
 	SourceMod::IForward* m_prebotupdateforward;
 	SourceMod::IForward* m_onnavmeshloadedforward;
 	SourceMod::IForward* m_onnavmeshdestroyedforward;
+	SourceMod::IForward* m_onnavmeshseedingforward;
 	SourceMod::IForward* m_onbotstuckforward;
 	SourceMod::IForward* m_onmodroundrestart;
 	SourceMod::IForward* m_onbotobstacleonpath;

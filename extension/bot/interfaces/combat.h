@@ -22,7 +22,7 @@ public:
 	static constexpr int LOOK_AROUND_MIN_SKILL = 25;
 	static constexpr float POST_COMBAT_TIMER_DURATION = 5.0f;
 	static constexpr int DANGER_SCAN_IGNORE_FOV_SKILL = 90;
-	static constexpr float TOGGLE_SCOPE_COOLDOWN_TIME = 0.5f;
+	static constexpr float TOGGLE_SCOPE_COOLDOWN_TIME = 1.0f;
 	static constexpr float CLEAR_AREAS_TIMER_INTERVAL = 3.0f;
 
 	struct CombatData
@@ -101,13 +101,6 @@ public:
 	void SetAimState(bool state) { m_shouldAim = state; }
 	// Returns true if the combat interface should handle aiming at enemies.
 	const bool ShouldAim() const { return m_shouldAim; }
-	/**
-	 * @brief Sets if the combat interface should handle weapon selection.
-	 * @param state True to enable, false to disable.
-	 */
-	void SetSelectWeaponState(bool state) { m_shouldSelectWeapons = state; }
-	// Returns true if the combat interface should handle weapon selection.
-	const bool ShouldSelectWeapons() const { return m_shouldSelectWeapons; }
 	// Returns true if the bot is currently in combat.
 	const bool IsInCombat() const { return m_combatData.in_combat; }
 	// Returns the cached combat data, may be outdated.
@@ -436,6 +429,7 @@ protected:
 	bool IsEnemyInCalloutCooldown(CBaseEntity* enemy) const;
 	void StartPerEnemyCalloutCooldown(CBaseEntity* enemy, const float time);
 private:
+	int m_combatBehaviorFlags;
 	CBaseEntity* m_lastWeaponPtr;
 	const CKnownEntity* m_lastThreatPtr;
 	CountdownTimer m_dangerScanTimer;
@@ -457,7 +451,6 @@ private:
 	IntervalTimer m_attackTimer; // timer used for cooldown between attacks (not shared)
 	CombatData m_combatData;
 	bool m_shouldAim;
-	bool m_shouldSelectWeapons;
 	bool m_isScopedOrDeployed;
 	bool m_wantsToScope; // true if the bot wants to use a scope, false otherwise
 	bool m_reAim;
@@ -476,6 +469,7 @@ private:
 	void DangerScanUpdate(); // runs danger scan logic
 	void UpdateScopeState();
 	void UpdateMarkAreasAsCleared(const CKnownEntity* threat);
+	void UpdateWeaponSelection(const CKnownEntity* threat);
 
 	/* Callout shared */
 	static inline std::array<CountdownTimer, MAX_TEAMS> s_globalCalloutCooldownTimer{};

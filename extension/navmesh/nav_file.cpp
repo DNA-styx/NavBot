@@ -299,26 +299,25 @@ void CNavArea::Save(std::fstream& filestream, uint32_t version)
 	//
 	// Store hiding spots for this area
 	//
-	constexpr auto MAX_HIDING_SPOTS_TO_SAVE = 255;
+	constexpr auto MAX_HIDING_SPOTS_TO_SAVE = 255U;
 
 	int count;
-	if (m_hidingSpots.Count() > MAX_HIDING_SPOTS_TO_SAVE)
+	if (m_hidingSpots.size() > MAX_HIDING_SPOTS_TO_SAVE)
 	{
 		count = 255;
-		Warning( "Warning: NavArea #%d: Truncated hiding spot list to %i\n", m_id, MAX_HIDING_SPOTS_TO_SAVE);
+		Warning( "Warning: NavArea #%d: Truncated hiding spot list to %u\n", m_id, MAX_HIDING_SPOTS_TO_SAVE);
 	}
 	else
 	{
-		count = m_hidingSpots.Count();
+		count = static_cast<int>(m_hidingSpots.size());
 	}
 	filestream.write(reinterpret_cast<char*>(&count), sizeof(int));
 
 	// store HidingSpot objects
 	int saveCount = 0;
-	FOR_EACH_VEC( m_hidingSpots, hit )
+
+	for (HidingSpot* spot : m_hidingSpots)
 	{
-		HidingSpot *spot = m_hidingSpots[ hit ];
-		
 		spot->Save(filestream, version);
 
 		// overflow check
@@ -474,7 +473,7 @@ NavErrorType CNavArea::Load(std::fstream& filestream, uint32_t version, uint32_t
 		// create new hiding spot and put on master list
 		HidingSpot *spot = TheNavMesh->CreateHidingSpot();
 		spot->Load(filestream, version);
-		m_hidingSpots.AddToTail(spot);
+		m_hidingSpots.push_back(spot);
 	}
 
 	//
@@ -1139,7 +1138,7 @@ static NavErrorType CheckNavFile( const char *bspFilename )
 	return NAV_OK;
 }
 
-
+#if 0
 //--------------------------------------------------------------------------------------------------------------
 void CommandNavCheckFileConsistency( void )
 {
@@ -1174,6 +1173,7 @@ void CommandNavCheckFileConsistency( void )
 	filesystem->FindClose( findHandle );
 }
 static ConCommand sm_nav_check_file_consistency( "sm_nav_check_file_consistency", CommandNavCheckFileConsistency, "Scans the maps directory and reports any missing/out-of-date navigation files.", FCVAR_GAMEDLL | FCVAR_CHEAT );
+#endif // 0
 
 static ConVar sm_nav_auto_import("sm_nav_auto_import", "0", FCVAR_GAMEDLL, "If enabled, automatically imports an official nav mesh if a navbot nav mesh is missing.");
 ConVar sm_nav_quicksave("sm_nav_quicksave", "1", FCVAR_GAMEDLL | FCVAR_CHEAT, "Set to one to skip the time consuming phases of the analysis.  Useful for data collection and testing.");	// TERROR: defaulting to 1, since we don't need the other data
@@ -1628,9 +1628,8 @@ NavErrorType CNavMesh::PostLoad( uint32_t version )
 
 	extern HidingSpotVector TheHidingSpots;
 	// allow hiding spots to compute information
-	FOR_EACH_VEC( TheHidingSpots, hit )
+	for (HidingSpot* spot : TheHidingSpots)
 	{
-		HidingSpot *spot = TheHidingSpots[ hit ];
 		error = spot->PostLoad();
 
 		if (error != NAV_OK)

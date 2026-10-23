@@ -179,6 +179,15 @@ methodmap NavBot < NavBotBasePlayer
 	 * @return			Number of path segments written to the array. The last valid index is the return value minus one.
 	 */
 	public native int GetCurrentPath(float[] x, float[] y, float[] z, const int size);
+	/**
+	 * Sends the "debug move to" event to the bot.
+	 * This works even with sm_navbot_debug_disable_gamemode_ai 1 and is the same event used by the sm_navbot_tool_bots_go_to command.
+	 * This overrides all bot behavior and is inteded to be used for testing the nav mesh.
+	 * 
+	 * @param pos		World position the bot will move to.
+	 * @error			Invalid bot instance.
+	 */
+	public native void SendDebugMoveToEvent(const float pos[3]);
 }
 
 typeset NavBotScriptedBehaviorCB
@@ -193,21 +202,6 @@ typeset NavBotScriptedBehaviorCB
 	 */
 	function Action (NavBot bot, float moveGoal[3], NavBotRouteType& routeType);
 };
-
-/**
- * Called when a new NavBot Plugin Bot instance is about to be attached to an entity
- * 
- * @param entity Entity index that the plugin bot will be attached to.
- * @return Plugin_Continue to allow the plugin bot to be created. Anything else to prevent the bot from being created.
- */
-forward Action OnPrePluginBotAdd(int entity);
-
-/**
- * Called when a NavBot Plugin Bot was attached to an entity.
- * 
- * @param entity Client index that just got a plugin bot attached to.
- */
-forward void OnPluginBotAdded(int entity);
 
 const NavBot NULL_NAVBOT = view_as<NavBot>(0);
 

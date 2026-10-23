@@ -523,7 +523,7 @@ bool NavIsReachable(CNavArea* start, CNavArea* goal, CostFunctor& costFunc)
 template< typename CostFunctor >
 float NavAreaTravelDistance( CNavArea *startArea, CNavArea *endArea, CostFunctor &costFunc, float maxPathLength = 0.0f )
 {
-	if (startArea == NULL || endArea == NULL)
+	if (startArea == nullptr || endArea == nullptr)
 		return -1.0f;
 
 	if (startArea == endArea)
@@ -537,7 +537,19 @@ float NavAreaTravelDistance( CNavArea *startArea, CNavArea *endArea, CostFunctor
 	float distance = 0.0f;
 	for( CNavArea *area = endArea; area->GetParent(); area = area->GetParent() )
 	{
-		distance += (area->GetCenter() - area->GetParent()->GetCenter()).Length();
+		switch (area->GetParentHow())
+		{
+		case NavTraverseType::GO_OFF_MESH_CONNECTION:
+		{
+			const NavOffMeshConnection* conn = area->GetParent()->GetOffMeshConnectionToArea(area);
+			// for off-mesh links, use the precalculated distance
+			distance += conn->GetConnectionLength();
+			break;
+		}
+		default:
+			distance += (area->GetCenter() - area->GetParent()->GetCenter()).Length();
+			break;
+		}
 	}
 
 	return distance;
@@ -1757,6 +1769,7 @@ public:
 		h = 0.0f;
 		status = NodeStatus::NEW;
 		parent = nullptr;
+		how = NavTraverseType::NUM_TRAVERSE_TYPES;
 	}
 
 	template <typename T = CNavArea>
@@ -1767,6 +1780,7 @@ public:
 		h = 0.0f;
 		status = NodeStatus::NEW;
 		parent = nullptr;
+		how = NavTraverseType::NUM_TRAVERSE_TYPES;
 	}
 
 	void SetArea(CNavArea* pArea) { area = pArea; }
@@ -1778,12 +1792,15 @@ public:
 	float GetGCost() const { return g; }
 	float GetHCost() const { return h; }
 	float GetFCost() const { return g + h; }
+	NavTraverseType GetTraverseType() const { return how; }
+	void SetTraverseType(NavTraverseType type) { how = type; }
 
 	CNavArea* area;
 	float g; // g cost
 	float h; // h cost
 	NodeStatus status;
 	NavAStarNode* parent; // parent node
+	NavTraverseType how; // how to get to this area.
 };
 
 class NavNodeSmallestCost
@@ -1833,6 +1850,7 @@ public:
 	virtual ~INavAStarSearch();
 
 	void SetStart(T* area) { startArea = area; }
+	T* GetStart() const { return startArea; }
 	void SetGoalArea(T* area) { goalArea = area; }
 	void SetGoalPosition(const Vector& pos) { goalPosition = pos; goalArea = nullptr; }
 
@@ -1846,6 +1864,17 @@ public:
 	virtual void OnFailure() {}
 	// Total path cost
 	const float GetTotalCost() const { return totalCost; }
+	const NavAStarNode* FindNodeForArea(T* area) const
+	{
+		auto it = nodes.find(area->GetID());
+
+		if (it != nodes.cend())
+		{
+			return &it->second;
+		}
+
+		return nullptr;
+	}
 
 private:
 	T* startArea;
@@ -1854,11 +1883,29 @@ private:
 	bool lastResult;
 	float totalCost;
 
-	NavAStarNode* GetNodeForArea(T* area);
 	void BuildPath(NavAStarNode* endnode);
+	NavAStarNode* GetNodeForArea(T* area);
 
 	std::unordered_map<unsigned int, NavAStarNode> nodes;
 	std::vector<CNavArea*> path;
+
+	struct SearchPair
+	{
+		SearchPair()
+		{
+			area = nullptr;
+			how = NavTraverseType::NUM_TRAVERSE_TYPES;
+		}
+
+		SearchPair(T* _area, NavTraverseType _how)
+		{
+			area = _area;
+			how = _how;
+		}
+
+		T* area;
+		NavTraverseType how;
+	};
 };
 
 template<typename T>
@@ -1905,9 +1952,10 @@ inline void INavAStarSearch<T>::DoSearch(CF& gCostFunctor, HF& hCostFunctor)
 {
 	std::priority_queue<NavAStarNode*, std::vector<NavAStarNode*>, NavNodeSmallestCost> openList;
 	Vector searchGoal = goalArea != nullptr ? goalArea->GetCenter() : goalPosition;
-	std::vector<CNavArea*> neighborAreas;
+	std::vector<SearchPair> neighborAreas;
 	CNavArea* endArea = goalArea;
 	NavAStarNode* closest = nullptr;
+	NavTraverseType how = NavTraverseType::NUM_TRAVERSE_TYPES;
 
 	if (endArea == nullptr)
 	{
@@ -1963,13 +2011,16 @@ inline void INavAStarSearch<T>::DoSearch(CF& gCostFunctor, HF& hCostFunctor)
 		}
 
 		// Collect neighbors
-		auto collectneighborsfunc = [&neighborAreas](CNavArea* other) {
-			neighborAreas.push_back(other);
+		auto collectneighborsfunc = [&neighborAreas](CNavArea* neighborArea, NavTraverseType how) {
+			neighborAreas.emplace_back(neighborArea, how);
+			return true;
 		};
-		area->ForEachConnectedArea(collectneighborsfunc);
 
-		for (auto neighbor : neighborAreas)
+		area->SearchConnectedAreas(collectneighborsfunc);
+
+		for (SearchPair& pair : neighborAreas)
 		{
+			CNavArea* neighbor = pair.area;
 			NavAStarNode* node = GetNodeForArea(neighbor);
 
 			if (node->IsClosed())
@@ -1997,6 +2048,7 @@ inline void INavAStarSearch<T>::DoSearch(CF& gCostFunctor, HF& hCostFunctor)
 				node->g = newCost;
 				node->h = hCostFunctor(neighbor, searchGoal);
 				node->parent = current;
+				node->SetTraverseType(pair.how);
 
 				if (node->IsStatusUndefined())
 				{
@@ -2023,6 +2075,7 @@ inline void INavAStarSearch<T>::Clear()
 	this->path.clear();
 	this->nodes.clear();
 	this->lastResult = false;
+	this->totalCost = -1.0f;
 }
 
 template<typename T>
