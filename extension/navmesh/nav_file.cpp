@@ -607,7 +607,7 @@ NavErrorType CNavArea::PostLoad( void )
 				connect.ladder = TheNavMesh->GetLadderByID( id );
 			}
 
-			if (id && connect.ladder == NULL)
+			if (id != 0 && connect.ladder == nullptr)
 			{
 				smutils->LogError(myself, "CNavArea::PostLoad: Corrupt navigation ladder data. Cannot connect Navigation Areas.");
 				error = NAV_CORRUPT_DATA;
@@ -2572,7 +2572,7 @@ void CNavMesh::CommandNavDumpToKeyValues()
 			{
 				KeyValues* connections = new KeyValues("Connections");
 
-				auto func = [&connections](CNavArea* connectedArea) {
+				auto func = [&connections](CNavArea* connectedArea, NavTraverseType how) {
 					KeyValues* areaconn = new KeyValues("Area");
 
 					areaconn->SetInt("ID", static_cast<int>(connectedArea->GetID()));

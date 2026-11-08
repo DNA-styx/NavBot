@@ -666,6 +666,53 @@ bool CPath::ProcessLaddersInPath(CBaseBot* bot, BotPathSegment* from, BotPathSeg
 	VPROF_BUDGET("CPath::ProcessLaddersInPath", "NavBot");
 #endif // EXT_VPROF_ENABLED
 
+	const CNavLadder* ladder = from->area->GetLadderConnectionToArea(to->area);
+
+	if (ladder != nullptr)
+	{
+		to->ladder = ladder;
+		const bool isUp = to->how == GO_LADDER_UP;
+		to->type = isUp ? AIPath::SegmentType::SEGMENT_LADDER_UP : AIPath::SegmentType::SEGMENT_LADDER_DOWN;
+		auto connect = ladder->GetConnectionToArea(from->area);
+
+		if (connect != nullptr)
+		{
+			if (isUp)
+			{
+				to->goal = connect->GetConnectionPoint() + ladder->GetNormal() * bot->GetMovementInterface()->GetHullWidth();
+				// the connection point is to the EXIT area, adjust the Z coordinates
+				to->goal.z = ladder->ClampZ(from->area->GetCenter().z);
+			}
+			else
+			{
+				to->goal = connect->GetConnectionPoint() - ladder->GetNormal() * bot->GetMovementInterface()->GetHullWidth();
+				// the connection point is to the EXIT area, adjust the Z coordinates
+				to->goal.z = ladder->ClampZ(from->area->GetCenter().z);
+			}
+		}
+		else
+		{
+			// one way connection to ladder, won't have pre-computed connection point
+			Vector point = from->area->ComputeConnectionPointToLadder(ladder);
+
+			if (isUp)
+			{
+				to->goal = point + ladder->GetNormal() * bot->GetMovementInterface()->GetHullWidth();
+				// the connection point is to the EXIT area, adjust the Z coordinates
+				to->goal.z = ladder->ClampZ(from->area->GetCenter().z);
+			}
+			else
+			{
+				to->goal = point - ladder->GetNormal() * bot->GetMovementInterface()->GetHullWidth();
+				// the connection point is to the EXIT area, adjust the Z coordinates
+				to->goal.z = ladder->ClampZ(from->area->GetCenter().z);
+			}
+		}
+
+		return true;
+	}
+
+#if 0
 	std::vector<const NavLadderConnect*> connections;
 	from->area->GetAllLadderConnections(connections);
 
@@ -699,6 +746,7 @@ bool CPath::ProcessLaddersInPath(CBaseBot* bot, BotPathSegment* from, BotPathSeg
 			}
 		}
 	}
+#endif // 0
 
 	if (bot->IsDebugging(BOTDEBUG_PATH) && bot->IsDebugging(BOTDEBUG_ERRORS))
 	{

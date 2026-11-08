@@ -53,6 +53,8 @@ CExtManager::CExtManager()
 	m_onmodroundrestart = nullptr;
 	m_onbotobstacleonpath = nullptr;
 	m_onbotcomputepathfailed = nullptr;
+	m_onbotentercombat = nullptr;
+	m_onbotenemyvisible = nullptr;
 #endif // !NO_SOURCEPAWN_API
 }
 
@@ -71,6 +73,8 @@ CExtManager::~CExtManager()
 	forwards->ReleaseForward(m_onmodroundrestart);
 	forwards->ReleaseForward(m_onbotobstacleonpath);
 	forwards->ReleaseForward(m_onbotcomputepathfailed);
+	forwards->ReleaseForward(m_onbotentercombat);
+	forwards->ReleaseForward(m_onbotenemyvisible);
 #endif // !NO_SOURCEPAWN_API
 
 	// assign NULL to the smart ptr to detele the existing instance
@@ -585,7 +589,6 @@ void CExtManager::AddBot(std::string* newbotname, edict_t** newbotedict)
 	bot->GetInventoryInterface();
 	bot->GetSquadInterface();
 	bot->GetCombatInterface();
-	bot->GetPathProcessorInterface();
 
 	if (newbotedict != nullptr)
 	{
@@ -899,6 +902,12 @@ void CExtManager::SetupForwards()
 	};
 
 	m_onbotcomputepathfailed = forwards->CreateForward("OnNavBotComputePathFailed", ET_Ignore, static_cast<unsigned int>(computepathfailedparams.size()), computepathfailedparams.data());
+
+	m_onbotentercombat = forwards->CreateForward("OnNavBotEnterCombat", ET_Ignore, 3, nullptr, 
+		SourceMod::ParamType::Param_Cell, SourceMod::ParamType::Param_Cell, SourceMod::ParamType::Param_Cell);
+
+	m_onbotenemyvisible = forwards->CreateForward("OnNavBotThreatVisible", ET_Ignore, 3, nullptr,
+		SourceMod::ParamType::Param_Cell, SourceMod::ParamType::Param_Cell, SourceMod::ParamType::Param_Cell);
 #endif // !NO_SOURCEPAWN_API
 }
 

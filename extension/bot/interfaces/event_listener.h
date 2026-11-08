@@ -119,12 +119,13 @@ public:
 	virtual void OnSquadEvent(SquadEventType evtype); // Squad events
 	virtual void OnObjectSapped(CBaseEntity* owner, CBaseEntity* saboteur); // An object was sapped (TF2)
 	virtual void OnGameEvent(const IGameEvent* event, void* moddata = nullptr); // Generic AI event for passing game events
-	virtual void OnPathStatusChanged(); // Called by the path processor to notify the path status has changed
 	virtual void OnBombPlanted(const Vector& position, const int teamIndex, CBaseEntity* player, CBaseEntity* ent); // Called when a bomb has been planted, data passed depends on the current mod
 	virtual void OnBombDefused(const Vector& position, const int teamIndex, CBaseEntity* player, CBaseEntity* ent); // Called when a bomb has been defused, data passed depends on the current mod
 	virtual void OnDangerousEntityChanged(CBaseEntity* newent, CBaseEntity* oldent); // Called when the most dangereous entity determined by the combat interface changes.
 	virtual void OnCustomModEvent(const int id, const std::any& data); // General purpose event for game/mod specific events.
 	virtual void OnPluginCommand(PluginCommandTypes type, const PluginCommandData& data);
+	virtual void OnGoingToTheObjective(CBaseBot* other, int objectiveID, const std::any& data); // Notify other bots that I'm going to the objective.
+	virtual void OnReachedObjective(CBaseBot* other, int objectiveID, const std::any& data); // Notify other bots that I'm at the objective.
 };
 
 inline void IEventListener::OnDebugMoveToCommand(const Vector& moveTo)
@@ -465,19 +466,6 @@ inline void IEventListener::OnGameEvent(const IGameEvent* event, void* moddata)
 	}
 }
 
-inline void IEventListener::OnPathStatusChanged()
-{
-	auto vec = GetListenerVector();
-
-	if (vec)
-	{
-		for (auto listener : *vec)
-		{
-			listener->OnPathStatusChanged();
-		}
-	}
-}
-
 inline void IEventListener::OnBombPlanted(const Vector& position, const int teamIndex, CBaseEntity* player, CBaseEntity* ent)
 {
 	auto vec = GetListenerVector();
@@ -539,6 +527,32 @@ inline void IEventListener::OnPluginCommand(PluginCommandTypes type, const Plugi
 		for (auto listener : *vec)
 		{
 			listener->OnPluginCommand(type, data);
+		}
+	}
+}
+
+inline void IEventListener::OnGoingToTheObjective(CBaseBot* other, int objectiveID, const std::any& data)
+{
+	auto vec = GetListenerVector();
+
+	if (vec)
+	{
+		for (auto listener : *vec)
+		{
+			listener->OnGoingToTheObjective(other, objectiveID, data);
+		}
+	}
+}
+
+inline void IEventListener::OnReachedObjective(CBaseBot * other, int objectiveID, const std::any & data)
+{
+	auto vec = GetListenerVector();
+
+	if (vec)
+	{
+		for (auto listener : *vec)
+		{
+			listener->OnReachedObjective(other, objectiveID, data);
 		}
 	}
 }

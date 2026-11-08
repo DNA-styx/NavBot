@@ -121,8 +121,6 @@ void CBaseMod::OnMapStart()
 			sbm->Reset();
 		}
 	}
-
-	ICombat::ResetSharedCalloutData();
 }
 
 CBaseBot* CBaseMod::AllocateBot(edict_t* edict)
@@ -148,8 +146,6 @@ std::optional<int> CBaseMod::GetPlayerResourceEntity()
 void CBaseMod::OnRoundStart()
 {
 	ISensor::s_npcentities.clear();
-	// wait a little after round restart to send callouts
-	ICombat::SetSharedCalloutCooldownTime(ICombat::POST_ROUND_RESTART_INITIAL_CALLOUT_COOLDOWN);
 
 	for (auto& sbm : m_teamsharedmemory)
 	{
@@ -374,17 +370,6 @@ void CBaseMod::RemoveNPCClassnameFromList(const char* classname)
 	}
 }
 
-void CBaseMod::GetEnemyHumanName(const CKnownEntity* enemy, std::string& friendlyName) const
-{
-	friendlyName = enemy->GetEntityClassname();
-}
-
-bool CBaseMod::ShouldCalloutEnemy(CBaseBot* bot, const CKnownEntity* enemy) const
-{
-	// only callout enemies that derives from CBaseCombatCharacter. These includes players and NPCs.
-	return modhelpers->IsCombatCharacter(enemy->GetEntity());
-}
-
 #ifdef EXT_DEBUG
 
 void CBaseMod::Debug_PrintNPCClassnameList()
@@ -450,7 +435,7 @@ void CBaseMod::InternalFindPlayerResourceEntity()
 				continue;
 			}
 
-			ServerClass* pClass = pEdict->GetNetworkable()->GetServerClass();
+			const ServerClass* pClass = pEdict->GetNetworkable()->GetServerClass();
 
 			if (UtilHelpers::FindNestedDataTable(pClass->m_pTable, "DT_PlayerResource"))
 			{

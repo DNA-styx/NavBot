@@ -5,6 +5,8 @@
 #include <fstream>
 #include <sdkports/sdk_ehandle.h>
 
+class CCommand;
+
 /**
  * @brief Namespace for navigation mesh scripting utils
  */
@@ -65,7 +67,7 @@ namespace navscripting
 		// Sets the current entity without linking
 		void SetActiveEntity(CBaseEntity* entity) { m_hEntity = entity; }
 	};
-	
+
 	/**
 	 * @brief Handles a toggle condition in scripting context.
 	 */
@@ -134,6 +136,8 @@ namespace navscripting
 			m_targetEnt.FindLinkedEntity();
 		}
 
+		// Returns true if a toggle condition type was set
+		bool IsToggleConditionSet() const { return m_toggle_type != TCTypes::TYPE_NOT_SET; }
 		void SearchForEntities() { m_targetEnt.FindLinkedEntity(); }
 		void SetTargetEntity(CBaseEntity* entity) { m_targetEnt.LinkToEntity(entity); }
 		void SetIntegerData(int value) { m_iData = value; }
@@ -163,7 +167,7 @@ namespace navscripting
 			m_toggle_type = TCTypes::TYPE_NOT_SET;
 			m_iData = 0;
 			m_flData = 0.0f;
-			m_vecData = vec3_origin;
+			m_vecData.Init(0.0f, 0.0f, 0.0f);
 			m_inverted = false;
 		}
 
@@ -188,7 +192,18 @@ namespace navscripting
 		bool TestCondition_TraceHullSolidWorld() const;
 		bool TestCondition_BaseToggle_Position() const;
 	};
+}
 
+namespace navscripting::concmd
+{
+	// prints the help message
+	void PrintHelp();
+	/**
+	 * @brief Parses a console command and updates the given toggle condition.
+	 * @param args Command args.
+	 * @param tc Toggle condition to update.
+	 */
+	void ParseEditCommand(const CCommand& args, navscripting::ToggleCondition& tc);
 }
 
 #endif // !NAV_MESH_SCRIPTING_H_

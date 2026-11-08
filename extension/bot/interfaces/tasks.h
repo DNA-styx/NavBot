@@ -634,12 +634,13 @@ public:
 	virtual TaskEventResponseResult<BotClass> OnSquadEvent(BotClass* bot, SquadEventType evtype) { return TryContinue(); }
 	virtual TaskEventResponseResult<BotClass> OnObjectSapped(BotClass* bot, CBaseEntity* owner, CBaseEntity* saboteur) { return TryContinue(); }
 	virtual TaskEventResponseResult<BotClass> OnGameEvent(BotClass* bot, const IGameEvent* event, void* moddata) { return TryContinue(); }
-	virtual TaskEventResponseResult<BotClass> OnPathStatusChanged(BotClass* bot) { return TryContinue(); }
 	virtual TaskEventResponseResult<BotClass> OnBombPlanted(BotClass* bot, const Vector& position, const int teamIndex, CBaseEntity* player, CBaseEntity* ent) { return TryContinue(); }
 	virtual TaskEventResponseResult<BotClass> OnBombDefused(BotClass* bot, const Vector& position, const int teamIndex, CBaseEntity* player, CBaseEntity* ent) { return TryContinue(); }
 	virtual TaskEventResponseResult<BotClass> OnDangerousEntityChanged(BotClass* bot, CBaseEntity* newent, CBaseEntity* oldent) { return TryContinue(); }
 	virtual TaskEventResponseResult<BotClass> OnCustomModEvent(BotClass* bot, const int id, const std::any& data) { return TryContinue(); }
 	virtual TaskEventResponseResult<BotClass> OnPluginCommand(BotClass* bot, PluginCommandTypes type, const PluginCommandData& data) { return TryContinue(); }
+	virtual TaskEventResponseResult<BotClass> OnGoingToTheObjective(BotClass* bot, CBaseBot* other, int objectiveID, const std::any& data) { return TryContinue(); }
+	virtual TaskEventResponseResult<BotClass> OnReachedObjective(BotClass* bot, CBaseBot* other, int objectiveID, const std::any& data) { return TryContinue(); }
 
 	/**
 	 * @brief The task that comes after this
@@ -1252,11 +1253,6 @@ private:
 		PROPAGATE_TASK_EVENT_WITH_2_ARGS(OnGameEvent, event, moddata);
 	}
 
-	void OnPathStatusChanged() final
-	{
-		PROPAGATE_TASK_EVENT_WITH_NO_ARGS(OnPathStatusChanged);
-	}
-
 	void OnBombPlanted(const Vector& position, const int teamIndex, CBaseEntity* player, CBaseEntity* ent) final
 	{
 		PROPAGATE_TASK_EVENT_WITH_4_ARGS(OnBombPlanted, position, teamIndex, player, ent);
@@ -1280,6 +1276,16 @@ private:
 	void OnPluginCommand(PluginCommandTypes type, const PluginCommandData& data) final
 	{
 		PROPAGATE_TASK_EVENT_WITH_2_ARGS(OnPluginCommand, type, data);
+	}
+
+	void OnGoingToTheObjective(CBaseBot* other, int objectiveID, const std::any& data) final
+	{
+		PROPAGATE_TASK_EVENT_WITH_3_ARGS(OnGoingToTheObjective, other, objectiveID, data);
+	}
+
+	void OnReachedObjective(CBaseBot* other, int objectiveID, const std::any& data) final
+	{
+		PROPAGATE_TASK_EVENT_WITH_3_ARGS(OnReachedObjective, other, objectiveID, data);
 	}
 };
 
