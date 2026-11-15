@@ -390,38 +390,6 @@ void botsharedutils::aiming::SelectDesiredAimSpotForTarget(CBaseBot* bot, CBaseE
 	}
 }
 
-botsharedutils::RandomDestinationCollector::RandomDestinationCollector(CBaseBot* bot, const float travellimit) :
-	INavAreaCollector<CNavArea>(bot->GetLastKnownNavArea(), travellimit)
-{
-	m_bot = bot;
-}
-
-botsharedutils::RandomDestinationCollector::RandomDestinationCollector(CNavArea* start, const float travellimit) :
-	INavAreaCollector<CNavArea>(start, travellimit)
-{
-	m_bot = nullptr;
-}
-
-bool botsharedutils::RandomDestinationCollector::ShouldSearch(CNavArea* area)
-{
-	if (m_bot)
-	{
-		return m_bot->GetMovementInterface()->IsAreaTraversable(area);
-	}
-
-	return !area->IsBlocked(NAV_TEAM_ANY);
-}
-
-bool botsharedutils::RandomDestinationCollector::ShouldCollect(CNavArea* area)
-{
-	if (m_bot)
-	{
-		return m_bot->GetMovementInterface()->IsAreaTraversable(area);
-	}
-
-	return !area->IsBlocked(NAV_TEAM_ANY);
-}
-
 botsharedutils::SpreadDangerToNearbyAreas::SpreadDangerToNearbyAreas(CNavArea* start, int teamid, const float travellimit, const float danger, const float maxdanger) :
 	INavAreaCollector<CNavArea>(start, travellimit)
 {
@@ -896,4 +864,94 @@ bool botsharedutils::SelectReachableUnclearedArea::ShouldCollect(CNavArea* area)
 float botsharedutils::search::GetDefaultMaxItemSearchDistance()
 {
 	return extmanager->GetMod()->GetModSettings()->GetCollectItemMaxDistance();
+}
+
+botsharedutils::PotentiallyVisibleCollector::PotentiallyVisibleCollector(const Vector& eyePos, const float maxVisionRange) :
+	m_eyePos(eyePos), m_eyeAngles(0.0f, 0.0f, 0.0f), m_forward(0.0f, 0.0f, 0.0f), m_halfcos(-9999.0f)
+{
+	if (maxVisionRange > 0.0f)
+	{
+		m_maxVisionRange = maxVisionRange * maxVisionRange;
+	}
+	else
+	{
+		m_maxVisionRange = -1.0f;
+	}
+}
+
+botsharedutils::PotentiallyVisibleCollector::PotentiallyVisibleCollector(const Vector& eyePos, const QAngle& eyeAngles, const float maxVisionRange, const float fov) :
+	PotentiallyVisibleCollector(eyePos, maxVisionRange)
+{
+	m_eyeAngles = eyeAngles;
+	m_halfcos = UtilHelpers::GetForwardViewCone(fov);
+	AngleVectors(eyeAngles, &m_forward);
+}
+
+bool botsharedutils::PotentiallyVisibleCollector::ShouldSearch(CNavArea* area)
+{
+	if (IsStartArea(area))
+	{
+		return true;
+	}
+
+	auto func = [this](CNavArea* neighborArea, NavTraverseType how) {
+		// visible areas are marked
+		if (this->IsMarked(neighborArea))
+		{
+			return false;
+		}
+
+		return true;
+	};
+
+	// SearchConnectedAreas will return false if any neighbor is already determined to be visible.
+	// If no neighbor is visible, skip this area. This is so we can stop the search early when we run out of visible areas.
+	return !(area->SearchConnectedAreas(func));
+}
+
+bool botsharedutils::PotentiallyVisibleCollector::ShouldCollect(CNavArea* area)
+{
+	if (IsStartArea(area))
+	{
+		MarkArea(area);
+		return false;
+	}
+
+	if (IsAreaVisible(area))
+	{
+		// remember visible areas
+		MarkArea(area);
+		return true;
+	}
+
+	return false;
+}
+
+bool botsharedutils::PotentiallyVisibleCollector::IsAreaVisible(CNavArea* area) const
+{
+	if (CheckRange())
+	{
+		const float range = (area->GetCenter() - m_eyePos).LengthSqr();
+
+		if (range > m_maxVisionRange)
+		{
+			return false;
+		}
+	}
+
+	if (UseFOV())
+	{
+		// check FOV first
+		if (!area->IsInFieldOfView(m_eyePos, m_forward, m_halfcos, navgenparams->human_eye_height))
+		{
+			return false;
+		}
+	}
+
+	if (area->IsPartiallyVisible(m_eyePos, navgenparams->human_eye_height, MASK_VISIBLE))
+	{
+		return true;
+	}
+
+	return false;
 }

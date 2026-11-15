@@ -262,19 +262,18 @@ bool CBotWeapon::IsLoaded() const
 {
 	const WeaponInfo* info = GetWeaponInfo();
 	const entities::HBaseCombatWeapon& bcw = GetBaseCombatWeapon();
-	bool loaded = true;
 
 	if (!info->Clip1IsReserveAmmo() && bcw.UsesClipsForAmmo1() && bcw.GetClip1() == 0)
 	{
-		loaded = false;
+		return false;
 	}
 
-	if (loaded && !info->Clip2IsReserveAmmo() && info->GetAttackInfo(botweapons::AttackType::SECONDARY).HasFunction() && bcw.UsesClipsForAmmo2() && bcw.GetClip2() == 0)
+	if (!info->Clip2IsReserveAmmo() && info->GetAttackInfo(botweapons::AttackType::SECONDARY).HasFunction() && bcw.UsesClipsForAmmo2() && bcw.GetClip2() == 0)
 	{
-		loaded = false;
+		return false;
 	}
 
-	return loaded;
+	return true;
 }
 
 float CBotWeapon::GetCurrentMinimumAttackRange(CBaseBot* owner) const
@@ -363,6 +362,21 @@ bool CBotWeapon::CanBeReloaded(const CBaseBot* owner) const
 	}
 
 	return true;
+}
+
+bool CBotWeapon::IsWeaponOfType(const char* classname, int econindex) const
+{
+	if (std::strcmp(classname, m_classname.c_str()) == 0)
+	{
+		if (econindex == IModHelpers::NO_ECON_INDEX)
+		{
+			return true;
+		}
+
+		return econindex == m_econindex;
+	}
+
+	return false;
 }
 
 float CBotWeapon::GetCustomAmmo(const CBaseBot* owner) const

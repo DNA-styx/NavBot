@@ -29,7 +29,6 @@ namespace navmesh
 
 			stream << rawstr; // load the entity string into a stream
 		}
-
 		
 		std::string line;
 		std::string key;
@@ -171,7 +170,7 @@ namespace navmesh
 	}
 }
 
-#ifdef EXT_DEBUG
+#if defined(EXT_DEBUG)
 
 CON_COMMAND(sm_nav_debug_lump_parser, "Debugs the entity lump parser")
 {

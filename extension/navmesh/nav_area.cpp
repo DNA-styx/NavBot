@@ -675,6 +675,15 @@ void CNavArea::ConnectTo( CNavArea *area, NavDirType dir )
 	m_incomingConnect[ dir ].FindAndRemove( con );
 
 	NavDirType dirOpposite = OppositeDirection( dir );
+
+#ifdef EXT_DEBUG
+	if (this->IsConnected(area, dirOpposite))
+	{
+		// Debug only, set a breakpoint here to catch any double connections during nav generation
+		META_CONPRINTF("Area #%u double connection to Area #%u !!! \n", this->GetID(), area->GetID());
+	}
+#endif // EXT_DEBUG
+
 	con.area = this;
 	if ( area->m_connect[ dirOpposite ].Find( con ) == area->m_connect[ dirOpposite ].InvalidIndex() )
 	{
@@ -1402,6 +1411,14 @@ void CNavArea::FinishSplitEdit( CNavArea *newArea, NavDirType ignoreEdge )
 
 		if (dir != NavDirType::NUM_DIRECTIONS)
 		{
+			NavDirType opposingDir = OppositeDirection(dir);
+
+			if (incomingArea->IsConnected(newArea, opposingDir))
+			{
+				// already connected, don't create double connections
+				return;
+			}
+
 			Vector close;
 			newArea->ComputeClosestPointInPortal(incomingArea, OppositeDirection(dir), center, &close);
 			float dist2D = (center.AsVector2D() - close.AsVector2D()).Length();
@@ -2886,11 +2903,13 @@ void CNavArea::Draw( void ) const
 	}
 #endif // NAVMESH_REMOVED_FEATURES
 
-	int bgcolor[4];
-	if ( 4 == sscanf(sm_nav_area_bgcolor.GetString(), "%d %d %d %d", &(bgcolor[0]), &(bgcolor[1]), &(bgcolor[2]), &(bgcolor[3]) ) )
+	std::array<int, 4> bgcolor;
+	if (UtilHelpers::parsers::ParseNumeric(sm_nav_area_bgcolor.GetString(), bgcolor))
 	{
-		for ( int i=0; i<4; ++i )
-			bgcolor[i] = clamp( bgcolor[i], 0, 255 );
+		for (int& c : bgcolor)
+		{
+			c = std::clamp(c, 0, 255);
+		}
 
 		if ( bgcolor[3] > 0 )
 		{
@@ -3722,6 +3741,48 @@ bool CNavArea::IsPartiallyVisible(const CNavArea* other, const bool checkPVS) co
 	return false;
 }
 
+bool CNavArea::IsPartiallyVisible(const Vector& eye, const float zOffset, unsigned int mask, const bool checkPVS) const
+{
+	if (checkPVS)
+	{
+		int cluster = engine->GetClusterForOrigin(GetCenter());
+		engine->GetPVSForCluster(cluster, static_cast<int>(CNavArea::s_pvs.size()), CNavArea::s_pvs.data());
+
+		if (!engine->CheckOriginInPVS(eye, CNavArea::s_pvs.data(), static_cast<int>(CNavArea::s_pvs.size())))
+		{
+			return false; // outside PVS
+		}
+	}
+
+	Vector offset(0.0f, 0.0f, zOffset);
+	unsigned int traceMask = mask != 0 ? mask : (MASK_BLOCKLOS_AND_NPCS | CONTENTS_IGNORE_NODRAW_OPAQUE);
+	Vector start = eye;
+	Vector end = GetCenter() + offset;
+
+	trace::CTraceFilterIgnoreCombatChars filter;
+	trace_t tr;
+	trace::line(start, end, traceMask, &filter, tr);
+
+	if (tr.fraction == 1.0f)
+	{
+		return true;
+	}
+
+	for (int c1 = 0; c1 < static_cast<int>(NavCornerType::NUM_CORNERS); c1++)
+	{
+		end = GetCorner(static_cast<NavCornerType>(c1)) + offset;
+
+		trace::line(start, end, traceMask, &filter, tr);
+
+		if (tr.fraction == 1.0f)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool CNavArea::IsCompletelyVisible(const CNavArea* other, const bool checkPVS) const
 {
 	if (checkPVS)
@@ -3813,6 +3874,26 @@ bool CNavArea::IsCompletelyVisible(const Vector& eyePos, const bool checkPVS, co
 	}
 
 	return true;
+}
+
+bool CNavArea::IsInFieldOfView(const Vector& eyePos, const Vector& eyeDir, const float halfcos, const float zOffset) const
+{
+	Vector offset(0.0f, 0.0f, zOffset);
+
+	if (UtilHelpers::PointWithinViewAngle(eyePos, GetCenter() + offset, eyeDir, halfcos))
+	{
+		return true;
+	}
+
+	for (int c1 = 0; c1 < static_cast<int>(NavCornerType::NUM_CORNERS); c1++)
+	{
+		if (UtilHelpers::PointWithinViewAngle(eyePos, GetCorner(static_cast<NavCornerType>(c1)) + offset, eyeDir, halfcos))
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 bool CNavArea::IsCollidingWith(CBaseEntity* pEntity, const float heightOffset, const bool fastCheck) const
