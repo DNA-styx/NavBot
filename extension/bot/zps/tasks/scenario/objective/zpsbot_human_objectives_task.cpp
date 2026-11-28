@@ -798,12 +798,33 @@ TaskResult<CZPSBot> CZPSBotObjectiveUseButtonTask::OnTaskUpdate(CZPSBot* bot)
 
 		if (!m_timeout.HasStarted())
 		{
-			m_timeout.Start(5.0f);
+			if (m_isMomentaryRotButton)
+			{
+				// these buttons may take a longer time to press
+				m_timeout.Start(30.0f);
+			}
+			else
+			{
+				m_timeout.Start(5.0f);
+			}
 		}
 
 		if (input->IsAimOnTarget() && !modhelpers->IsUseObstructed(bot->GetEntity(), button, &obstruction, &usePos))
 		{
 			input->PressUseButton();
+
+			if (m_isMomentaryRotButton)
+			{
+				float pos = sdk::buttons::ComputeMomentaryRotButtonPos(button);
+
+				if ((pos == 0.0f || pos == 1.0f) && pos != m_initialButtonPos)
+				{
+					return Done("Momentary button reached end position!");
+				}
+
+				return Continue();
+			}
+
 			return Done("Use button pressed!");
 		}
 

@@ -3214,6 +3214,56 @@ IMovement::ElevatorState IMovement::EState_MoveToWaitPosition()
 	return ElevatorState::MOVE_TO_WAIT_POS;
 }
 
+IMovement::ElevatorButtonStatus IMovement::GetElevatorButtonStatus(CBaseEntity* button, ElevatorState pressingState, ElevatorState pressedState) const
+{
+	CBaseBot* me = GetBot();
+	const int myTeam = me->GetCurrentTeamIndex();
+	const int myIndex = me->GetIndex();
+	const Vector buttonPos = UtilHelpers::getWorldSpaceCenter(button);
+	const float myRange = (buttonPos - me->GetEyeOrigin()).Length();
+	ElevatorButtonStatus status = ElevatorButtonStatus::BUTTON_FREE;
+
+	auto func = [this, &me, &myTeam, &myIndex, &buttonPos, &myRange, &status, &pressingState, &pressedState](CBaseBot* other) {
+		if (status == ElevatorButtonStatus::BUTTON_PRESSED || other == me)
+		{
+			return;
+		}
+
+		if (other->GetCurrentTeamIndex() != myTeam || !modhelpers->IsAlive(other->GetEntity()))
+		{
+			return;
+		}
+
+		const IMovement* mover = other->GetMovementInterface();
+
+		// must be using the same elevator from the same floor
+		if (mover->m_elevator != m_elevator || mover->m_fromFloor != m_fromFloor)
+		{
+			return;
+		}
+
+		if (mover->m_elevatorState == pressedState)
+		{
+			status = ElevatorButtonStatus::BUTTON_PRESSED;
+			return;
+		}
+
+		if (mover->m_elevatorState == pressingState)
+		{
+			const float otherRange = (buttonPos - other->GetEyeOrigin()).Length();
+
+			// ties go to the lower client index
+			if (otherRange < myRange || (otherRange == myRange && other->GetIndex() < myIndex))
+			{
+				status = ElevatorButtonStatus::BUTTON_TEAMMATE_NEARER;
+			}
+		}
+	};
+
+	extmanager->ForEachBot(func);
+	return status;
+}
+
 IMovement::ElevatorState IMovement::EState_CallElevator()
 {
 	/* Move towars the elevator call button and press it. Fails if the call button is invalid. */
@@ -3260,6 +3310,29 @@ IMovement::ElevatorState IMovement::EState_CallElevator()
 	if (callbutton == nullptr)
 	{
 		return ElevatorState::NOT_USING_ELEVATOR;
+	}
+
+	ElevatorButtonStatus buttonStatus = GetElevatorButtonStatus(callbutton, ElevatorState::CALL_ELEVATOR, ElevatorState::WAIT_FOR_ELEVATOR);
+
+	if (buttonStatus == ElevatorButtonStatus::BUTTON_PRESSED)
+	{
+		if (bot->IsDebugging(BOTDEBUG_MOVEMENT))
+		{
+			bot->DebugPrintToConsole(255, 105, 180, "%s Elevator already called by a teammate!\n", bot->GetDebugIdentifier());
+		}
+
+		return ElevatorState::WAIT_FOR_ELEVATOR;
+	}
+
+	if (buttonStatus == ElevatorButtonStatus::BUTTON_TEAMMATE_NEARER)
+	{
+		// let the teammate press it, wait at the wait position
+		if (!m_fromFloor->wait_position.IsZero(0.5f) && bot->GetRangeTo(m_fromFloor->wait_position) > IMovement::ELEV_MOVE_RANGE)
+		{
+			MoveTowards(m_fromFloor->wait_position, MOVEWEIGHT_CRITICAL);
+		}
+
+		return ElevatorState::CALL_ELEVATOR;
 	}
 
 	{
@@ -3372,6 +3445,41 @@ IMovement::ElevatorState IMovement::EState_OperateElevator()
 	}
 
 	CBaseBot* me = GetBot();
+
+	if (!m_elevatorTimeout.HasStarted())
+	{
+		m_elevatorTimeout.Start(m_elevator->IsMultiFloorElevator() ? 10.0f : 5.0f); // 10 seconds for multi floor type, else 5
+	}
+
+	if (m_elevatorTimeout.IsElapsed())
+	{
+		if (me->IsDebugging(BOTDEBUG_MOVEMENT))
+		{
+			me->DebugPrintToConsole(255, 105, 180, "%s Operate Elevator timed out!\n", me->GetDebugIdentifier());
+		}
+
+		return ElevatorState::NOT_USING_ELEVATOR;
+	}
+
+	ElevatorButtonStatus buttonStatus = GetElevatorButtonStatus(button, ElevatorState::OPERATE_ELEVATOR, ElevatorState::RIDE_ELEVATOR);
+
+	if (buttonStatus == ElevatorButtonStatus::BUTTON_PRESSED)
+	{
+		if (me->IsDebugging(BOTDEBUG_MOVEMENT))
+		{
+			me->DebugPrintToConsole(255, 105, 180, "%s Elevator already operated by a teammate!\n", me->GetDebugIdentifier());
+		}
+
+		m_elevatorTimeout.Invalidate();
+		return ElevatorState::RIDE_ELEVATOR;
+	}
+
+	if (buttonStatus == ElevatorButtonStatus::BUTTON_TEAMMATE_NEARER)
+	{
+		// let the teammate press it, stay where I am
+		return ElevatorState::OPERATE_ELEVATOR;
+	}
+
 	Vector pos = UtilHelpers::getWorldSpaceCenter(button);
 	float minrange = (CBaseExtPlayer::PLAYER_USE_RADIUS * 0.9f);
 

@@ -133,6 +133,8 @@ public:
 	{
 		m_rangeToButton = std::numeric_limits<float>::max();
 		m_waiting = false;
+		m_isMomentaryRotButton = sdk::buttons::IsMomentaryRotButton(button);
+		m_initialButtonPos = m_isMomentaryRotButton ? sdk::buttons::ComputeMomentaryRotButtonPos(button) : -1.0f;
 	}
 
 	// Radius around the button where other survivor bots are counted as competing for it.
@@ -159,6 +161,8 @@ private:
 	CountdownTimer m_timeout;
 	float m_rangeToButton;
 	bool m_waiting;
+	bool m_isMomentaryRotButton;
+	float m_initialButtonPos;
 
 	// Client indexes of bots currently running this task.
 	static inline std::vector<int> s_activeBots;

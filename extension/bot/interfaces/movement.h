@@ -847,6 +847,23 @@ private:
 	ElevatorState EState_RideElevator();
 	ElevatorState EState_ExitElevator();
 
+	// Result of checking what teammates on the same elevator floor are doing with a button.
+	enum class ElevatorButtonStatus : int
+	{
+		BUTTON_FREE = 0, // no teammate is handling the button, press it
+		BUTTON_PRESSED, // a teammate already pressed the button
+		BUTTON_TEAMMATE_NEARER, // a teammate nearer the button is about to press it
+	};
+
+	/**
+	 * @brief Checks if a teammate using the same elevator floor is handling the given button.
+	 * @param button The elevator button.
+	 * @param pressingState Elevator state of a bot that is going to press the button.
+	 * @param pressedState Elevator state of a bot that has pressed the button.
+	 * @return Button status.
+	 */
+	ElevatorButtonStatus GetElevatorButtonStatus(CBaseEntity* button, ElevatorState pressingState, ElevatorState pressedState) const;
+
 	StrafeJumpState StrafeJump_Init();
 	StrafeJumpState StrafeJump_ToMidPoint();
 	StrafeJumpState StrafeJump_ToEndPoint();
